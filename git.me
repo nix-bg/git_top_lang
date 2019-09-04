@@ -1,0 +1,105 @@
+#!/bin/bash
+# 
+# Your previous Python 2 content is preserved below:
+# 
+# """
+# Given the Github repository api, go through each repo and provide the list of top 10 languages sorted based on total LOC across all repositories. Github API to list all public repos is documented at https://developer.github.com/v3/repos/#list-all-public-repositories and API to find out languages for each repo is documented at https://developer.github.com/v3/repos/#list-languages
+# """
+set -e
+#VAR
+#workaround for API rate limit exceeded
+export http_proxy=http://localhost:8118/
+export ftp_proxy=http://localhost:8118/
+export all_proxy=socks://localhost:8118/
+export https_proxy=http://localhost:8118/
+export no_proxy=localhost,127.0.0.0/8
+#example
+#curl https://api.github.com/repositories?since=364
+REPO_URL="https://api.github.com/repositories?since="
+TMP_FILE=$(basename $0).$RANDOM.tmp.txt
+if [ -f $TMP_FILE ]; then rm -f $TMP_FILE;fi
+LOG_FILE=$(basename $0).$RANDOM.log.txt
+if [ -f $LOG_FILE ]; then rm -f $LOG_FILE;fi
+#example
+#curl https://api.github.com/repos/judofyr/gemify/languages
+#LANG_URL="https://api.github.com/repos///languages"
+#FUN
+get_all_repos() {
+	#example
+	#curl -s https://api.github.com/repositories?since=1 | jq -r '.[].languages_url,.[-1].id'
+	#echo ${1}${2}
+	#curl -s ${1}${2} | jq -r '.[].languages_url,.[-1].id'
+	unset result_repo
+	while result_repo=$(curl -s ${1}${2} | jq -r '.[].languages_url,.[-1].id') && echo ${result_repo} | head -4 | grep -q 'API rate limit exceeded'
+	do
+		echo RETRY after 5 sec: result_repo: $result_repo >> ${LOG_FILE}
+		sudo /etc/init.d/tor restart >> ${LOG_FILE}
+		sleep 5
+	done
+	#result_repo=$(curl -s ${1}${2} | jq -r '.[].languages_url,.[-1].id')
+	#result=$(cat /tmp/1)
+	#echo HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH >> ${LOG_FILE}
+	echo result_repo: "$result_repo" >> ${LOG_FILE}
+	#echo HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH >> ${LOG_FILE}
+	for line in ${result_repo}
+	do
+		#if ! [[ "$line" =~ ^[0-9]+$ ]]
+		if echo ${line} | grep -q ^http
+		then
+			#example
+			#curl -s https://api.github.com/repos/wycats/merb-core/languages | jq -r 'to_entries[] | "\(.key), \(.value)"'
+			unset result_lang
+			result_lang=$(curl -s "$line" | jq -r 'to_entries[] | "\(.key), \(.value)"')
+			while result_lang=$(curl -s "$line" | jq -r 'to_entries[] | "\(.key), \(.value)"') && echo ${result_lang} | head -4 | grep -q 'API rate limit exceeded'
+			do
+				echo RETRY after 5 sec: result_repo: $result_lang >> ${LOG_FILE}
+				sudo /etc/init.d/tor restart >> ${LOG_FILE}
+                		sleep 5
+			done
+			#echo "$result_lang" >> ${TMP_FILE}
+			if ! echo ${result_lang} | head -4 | grep -q 'Repository access blocked'
+			then
+				echo "$result_lang" >> ${TMP_FILE} 
+			else
+				echo ERROR: Repository access blocked: result_lang: ${result_lang} >> ${LOG_FILE}
+				#get_all_repos $REPO_URL ${2}
+			fi
+		else
+			if [[ "$line" =~ ^[0-9]+$ ]]
+			then
+				echo get_all_repos $REPO_URL $line >> ${LOG_FILE}
+				get_all_repos $REPO_URL $line
+			else
+				echo "no more since" >> ${LOG_FILE}
+				return 0
+			fi
+		fi
+	done
+}
+
+restart_tor() {
+	sudo /etc/init.d/tor restart
+}
+
+format_output() {
+	echo LANG, LOC
+	awk -F, -v OFS=, '{ seen[$1] += $2 } END { for (i in seen) print i, seen[i] }' ${1} | sed '/^$/d' | sort -t, -rnk2 | head -10
+}
+
+retry_curl() {
+	command=$1
+	retry=$2
+	timeout=$3
+	n=0
+	until [ $n -ge $retry ]
+	do
+		$command && break 
+		n=$(( $n + 1 ))
+		sleep $timeout
+	done
+}
+
+#MAIN
+
+get_all_repos $REPO_URL 1
+format_output $TMP_FILE
