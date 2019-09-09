@@ -49,7 +49,7 @@ get_all_repos() {
 			#example
 			#curl -s https://api.github.com/repos/wycats/merb-core/languages | jq -r 'to_entries[] | "\(.key), \(.value)"'
 			unset result_lang
-			result_lang=$(curl -s "$line" | jq -r 'to_entries[] | "\(.key), \(.value)"')
+			#result_lang=$(curl -s "$line" | jq -r 'to_entries[] | "\(.key), \(.value)"')
 			while result_lang=$(curl -s "$line" | jq -r 'to_entries[] | "\(.key), \(.value)"') && echo ${result_lang} | head -4 | grep -q 'API rate limit exceeded'
 			do
 				echo RETRY after 5 sec: result_repo: $result_lang >> ${LOG_FILE}
